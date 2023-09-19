@@ -8,6 +8,7 @@ pub(crate) fn parameters_table(
     sequence_length: u32,
     decode_length: u32,
     top_n_tokens: Option<u32>,
+    input_tokens: Option<Vec<u32>>,
     n_runs: usize,
     warmups: usize,
     temperature: Option<f32>,

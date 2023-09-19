@@ -93,6 +93,8 @@ message Request {
     bool prefill_logprobs = 6;
     /// Return most likely n tokens
     uint32 top_n_tokens = 7;
+    /// The input tokens
+    repeated uint32 input_tokens = 8;    
 }
 
 message Batch {

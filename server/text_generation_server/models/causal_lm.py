@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from opentelemetry import trace
 from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedTokenizerBase
 from typing import Optional, Tuple, List, Type, Dict
+from transformers import LlamaTokenizer,LlamaForCausalLM
 
 from text_generation_server.models import Model
 from text_generation_server.models.types import (
@@ -19,6 +20,7 @@ from text_generation_server.pb import generate_pb2
 from text_generation_server.utils import NextTokenChooser, StoppingCriteria, Sampling
 
 tracer = trace.get_tracer(__name__)
+from loguru import logger
 
 
 @dataclass
@@ -35,7 +37,7 @@ class CausalLMBatch(Batch):
 
     # All tokens
     all_input_ids: List[torch.Tensor]
-
+    
     # Lengths of all generations present in the batch
     input_lengths: List[int]
     prefix_offsets: List[int]
@@ -74,12 +76,15 @@ class CausalLMBatch(Batch):
         device: torch.device,
     ) -> "CausalLMBatch":
         inputs = []
+        batch_input_tokens = []
         next_token_choosers = []
         stopping_criterias = []
         top_n_tokens = []
         prefix_offsets = []
         read_offsets = []
         requests_idx_mapping = {}
+        
+        #logger.info(f"############ pb  {pb} ")
 
         # Parse batch
         max_truncation = 0
@@ -88,6 +93,8 @@ class CausalLMBatch(Batch):
         for i, r in enumerate(pb.requests):
             requests_idx_mapping[r.id] = i
             inputs.append(r.inputs)
+            if r.input_tokens and len(r.input_tokens) > 0:
+                batch_input_tokens.append(r.input_tokens)
             next_token_choosers.append(NextTokenChooser.from_pb(r.parameters, device))
             stopping_criteria = StoppingCriteria.from_pb(
                 r.stopping_parameters, tokenizer
@@ -99,15 +106,53 @@ class CausalLMBatch(Batch):
             padding_right_offset = max(
                 padding_right_offset, stopping_criteria.max_new_tokens
             )
-
-        tokenized_inputs = tokenizer(
-            inputs,
-            return_tensors="pt",
-            padding=True,
-            return_token_type_ids=False,
-            truncation=True,
-            max_length=max_truncation,
-        ).to(device)
+            
+        if len(batch_input_tokens) > 0 :
+            if len(batch_input_tokens) != len(inputs): # 两种方式混合，直接raise异常
+                raise ValueError("only support call with encoded input_token")
+            # 手动进行填充
+            # 找到最大的token长度
+            max_length = max([len(tokens) for tokens in batch_input_tokens])
+            padded_input_ids = []
+            attention_masks = []
+            for pb_tokens in batch_input_tokens:
+                tokens = list(pb_tokens)
+                # 计算从左边填充的数量
+                num_pad_tokens = max_length - len(tokens)
+                padded_tokens = [tokenizer.pad_token_id] * num_pad_tokens + tokens
+                mask = [0] * num_pad_tokens + [1] * len(tokens)
+                
+                padded_input_ids.append(padded_tokens)
+                attention_masks.append(mask)
+    
+            # 转化为PyTorch tensors并移至GPU
+            input_ids_tensor = torch.LongTensor(padded_input_ids).to(device)
+            attention_mask_tensor = torch.LongTensor(attention_masks).to(device)
+            tokenized_inputs = {
+                'input_ids': input_ids_tensor,
+                'attention_mask': attention_mask_tensor
+            }
+            
+            #logger.info(f"############ user encode, tokenized_inputs  {tokenized_inputs['input_ids'].shape} {tokenized_inputs}")
+            
+            # tokenized_inputs_encode = tokenizer(
+            #     inputs,
+            #     return_tensors="pt",
+            #     padding=True,
+            #     return_token_type_ids=False,
+            #     truncation=True,
+            #     max_length=max_truncation,
+            # ).to(device)
+            # logger.info(f"############ tokenized_inputs_encode {tokenized_inputs_encode['input_ids'].shape} {tokenized_inputs_encode}")
+        else:
+            tokenized_inputs = tokenizer(
+                inputs,
+                return_tensors="pt",
+                padding=True,
+                return_token_type_ids=False,
+                truncation=True,
+                max_length=max_truncation,
+            ).to(device)
         for _ in pb.requests:
             input_len = tokenized_inputs["input_ids"].shape[1]
             prefix_offsets.append(input_len - 5)
@@ -493,7 +538,6 @@ class CausalLM(Model):
 
             device = torch.device("cpu")
             dtype = torch.float32
-
         tokenizer = AutoTokenizer.from_pretrained(
             model_id,
             revision=revision,
@@ -501,6 +545,15 @@ class CausalLM(Model):
             truncation_side="left",
             trust_remote_code=trust_remote_code,
         )
+        logger.info(f"======== device {device} =======")
+        # tokenizer = LlamaTokenizer.from_pretrained(
+        #     model_id,
+        #     # revision=revision,
+        #     padding_side="left",
+        #     truncation_side="left",
+        #     # trust_remote_code=trust_remote_code,
+        #     legacy=False, add_eos_token=True
+        # )        
         model = AutoModelForCausalLM.from_pretrained(
             model_id,
             revision=revision,
@@ -511,6 +564,17 @@ class CausalLM(Model):
             load_in_8bit=quantize == "bitsandbytes",
             trust_remote_code=trust_remote_code,
         )
+        # model = LlamaForCausalLM.from_pretrained(
+        #     model_id,
+        #     # revision=revision,
+        #     torch_dtype=dtype,
+        #     device_map="auto"
+        #     if torch.cuda.is_available() and torch.cuda.device_count() > 1
+        #     else None,
+        #     load_in_8bit=quantize == "bitsandbytes",
+        #     # trust_remote_code=trust_remote_code,
+        # )
+        logger.info(f"*************** tokenizer path {model_id}")
         if torch.cuda.is_available() and torch.cuda.device_count() == 1:
             model = model.cuda()
 
@@ -556,6 +620,7 @@ class CausalLM(Model):
             kwargs["position_ids"] = position_ids
 
         outputs = self.model.forward(**kwargs)
+        #logger.info(f"outputs")
         return outputs.logits, outputs.past_key_values
 
     @tracer.start_as_current_span("generate_token")
@@ -565,12 +630,15 @@ class CausalLM(Model):
         # slice the attention mask to the correct shape
         attention_mask = batch.attention_mask[:, : -batch.padding_right_offset]
 
+        #logger.info(f"generate_token iiii")
         logits, past = self.forward(
             batch.input_ids,
             attention_mask,
             batch.position_ids,
             batch.past_key_values,
         )
+        # logger.info("generate_token logits {logits}, past {past}")
+        #logger.info("generate_token logits  ---")
 
         # Results
         generations: List[Generation] = []
@@ -632,6 +700,7 @@ class CausalLM(Model):
                 next_token_id_squeezed,
                 next_token_text,
             )
+            #(f"generate_token stop {stop}, reason {reason}")
 
             if not stop:
                 stopped = False
@@ -707,6 +776,9 @@ class CausalLM(Model):
 
                 generations.append(generation)
 
+            #("generate_token generations ")
+            #logger.info(f"generate_token generations {generations}")
+            #logger.info("generate_token generations {generations} eeeeeeeeeeeee")
             # Update values
             batch.input_ids[i, 0] = next_token_id
             batch.all_input_ids[i] = all_input_ids

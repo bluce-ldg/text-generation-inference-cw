@@ -22,6 +22,7 @@ from text_generation_server.models.types import (
 from text_generation_server.pb import generate_pb2
 from text_generation_server.utils import StoppingCriteria, HeterogeneousNextTokenChooser
 from text_generation_server.utils.dist import MEMORY_FRACTION
+from loguru import logger
 
 tracer = trace.get_tracer(__name__)
 

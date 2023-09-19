@@ -1,5 +1,6 @@
 import torch
 import torch.distributed
+from loguru import logger
 
 from typing import Optional, Type
 

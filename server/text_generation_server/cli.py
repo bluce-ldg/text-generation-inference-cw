@@ -12,6 +12,40 @@ from huggingface_hub import hf_hub_download
 app = typer.Typer()
 
 
+
+
+
+import datetime
+import os
+
+log_prefix = os.getenv('log_prefix', 'llmserver')
+
+# current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+# if not os.path.exists(os.getcwd() + "/log"):
+#     os.mkdir(os.getcwd() + "/log")
+# log_file = f"{os.getcwd()}/log/{log_prefix}_{current_time}.log"
+# logger = build_logger("llmserver", log_file)
+
+def get_log_file():
+    current_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    if not os.path.exists(os.getcwd() + "/log"):
+        os.mkdir(os.getcwd() + "/log")
+    return f"{os.getcwd()}/log/{log_prefix}_{current_time}.log"
+
+from loguru import logger
+def should_rotate(message, file):
+    # 定义何时创建新的日志文件的规则
+    file.seek(0, 2)
+    file_size = file.tell()
+    return file_size > 500 * 1024 * 1024 or message.record["time"].date() != message.record["time"].now().date()
+
+def cleanup(files):
+    # 定义如何清理过期的日志文件的规则
+    if len(files) > 4:  # 只保留最新的4个日志文件
+        for file in sorted(files)[:-4]:
+            os.remove(file)
+            
+
 class Quantization(str, Enum):
     bitsandbytes = "bitsandbytes"
     bitsandbytes_nf4 = "bitsandbytes-nf4"
@@ -52,16 +86,22 @@ def serve(
         ), "MASTER_PORT must be set when sharded is True"
 
     # Remove default handler
-    logger.remove()
-    logger.add(
-        sys.stdout,
-        format="{message}",
-        filter="text_generation_server",
-        level=logger_level,
-        serialize=json_output,
-        backtrace=True,
-        diagnose=False,
-    )
+    # logger.remove()
+    # logger.add(
+    #     sys.stdout,
+    #     format="{message}",
+    #     filter="text_generation_server",
+    #     level=logger_level,
+    #     serialize=json_output,
+    #     backtrace=True,
+    #     diagnose=False,
+    # )
+    log_file = get_log_file()
+    logger.add(log_file, colorize=False, enqueue=True,  
+            rotation=should_rotate,  # 使用自定义的文件切换规则
+            retention=cleanup,  # 使用自定义的文件清理规则
+        )
+
 
     # Import here after the logger is added to log potential import exceptions
     from text_generation_server import server

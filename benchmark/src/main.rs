@@ -98,6 +98,9 @@ struct Args {
     /// decoding strategies, for full doc refer to the `text-generation-server`
     #[clap(long, env)]
     top_n_tokens: Option<u32>,
+
+    #[clap(short, long, env, parse(try_from_str = parse_u32_vec))]
+    input_tokens: Option<Vec<u32>>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -123,6 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         do_sample,
         master_shard_uds_path,
         top_n_tokens,
+        input_tokens,
     } = args;
 
     let batch_size = batch_size.unwrap_or(vec![1, 2, 4, 8, 16, 32]);
@@ -180,6 +184,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 sequence_length,
                 decode_length,
                 top_n_tokens,
+                input_tokens,
                 runs,
                 warmups,
                 temperature,

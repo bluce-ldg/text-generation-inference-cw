@@ -146,6 +146,7 @@ impl Validation {
             watermark,
             decoder_input_details,
             top_n_tokens,
+            input_tokens,
             ..
         } = request.parameters;
 
@@ -277,6 +278,7 @@ impl Validation {
             parameters,
             stopping_parameters,
             top_n_tokens: top_n_tokens,
+            input_tokens: input_tokens.unwrap_or_default(),
         })
     }
 
@@ -351,6 +353,7 @@ pub(crate) struct ValidGenerateRequest {
     pub parameters: NextTokenChooserParameters,
     pub stopping_parameters: StoppingCriteriaParameters,
     pub top_n_tokens: u32,
+    pub input_tokens: Vec<u32>,
 }
 
 #[derive(Error, Debug)]

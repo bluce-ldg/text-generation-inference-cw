@@ -50,3 +50,14 @@ run-falcon-7b-instruct-quantize:
 
 clean:
 	rm -rf target aml
+
+run-llama2-13b-yanchao:
+	# PYTHONIOENCODING=utf-8 CUDA_VISIBLE_DEVICES=0,1 text-generation-launcher --model-id /workspace/models/llama2-cw-20230807 --num-shard 2 --port 8000	
+	PYTHONIOENCODING=utf-8 CUDA_VISIBLE_DEVICES=0,1 text-generation-launcher --model-id /workspace/models/llama2-cw-20230807 --port 8000 --dtype float16 --disable-custom-kernels --sharded false --max-concurrent-requests 2 --max-input-length 200 --max-total-tokens 400 --max-batch-prefill-tokens 400 
+	# PYTHONIOENCODING=utf-8 CUDA_VISIBLE_DEVICES=0 text-generation-launcher --model-id /workspace/models/llama2-cw-20230807 --port 8000 --dtype float16 --disable-custom-kernels	--max-concurrent-requests 2 --max-input-length 200 --max-total-tokens 400  --max-batch-prefill-tokens 400 
+	# PYTHONIOENCODING=utf-8 CUDA_VISIBLE_DEVICES=1 text-generation-launcher --model-id /workspace/models/llama2-cw-20230807 --port 8000 --max-concurrent-requests 2 --max-input-length 200 --max-total-tokens 800 
+
+run-bloom-7b-yanchao:
+	# PYTHONIOENCODING=utf-8 CUDA_VISIBLE_DEVICES=0,1 text-generation-launcher --disable-custom-kernels --model-id /workspace/models/bloomz-7b-newfmt-20230725 --num-shard 2  --port 8000	
+	PYTHONIOENCODING=utf-8 CUDA_VISIBLE_DEVICES=0 text-generation-launcher --disable-custom-kernels --model-id /workspace/models/bloomz-7b-newfmt-20230725  --port 8000	
+
