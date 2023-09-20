@@ -16,6 +16,7 @@ from text_generation_server.utils import (
     weight_files,
     Weights,
 )
+from loguru import logger
 
 tracer = trace.get_tracer(__name__)
 
@@ -43,6 +44,7 @@ class FlashLlama(FlashCausalLM):
                 padding_side="left",
                 truncation_side="left",
                 trust_remote_code=trust_remote_code,
+                legacy=False, add_eos_token=True
             )
         except Exception:
             tokenizer = AutoTokenizer.from_pretrained(
@@ -52,6 +54,10 @@ class FlashLlama(FlashCausalLM):
                 truncation_side="left",
                 trust_remote_code=trust_remote_code,
             )
+            
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+        
+        logger.info(f"LlamaTokenizer.from_pretrained model_id {model_id}")
 
         config = LlamaConfig.from_pretrained(
             model_id, revision=revision, trust_remote_code=trust_remote_code

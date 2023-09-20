@@ -193,14 +193,53 @@ class FlashCausalLMBatch(Batch):
         device: torch.device,
     ) -> "FlashCausalLMBatch":
         batch_inputs = []
+        batch_input_tokens = []
         max_truncation = 0
         for r in pb.requests:
             batch_inputs.append(r.inputs)
             max_truncation = max(max_truncation, r.truncate)
-
-        batch_tokenized_inputs = tokenizer(
-            batch_inputs, truncation=True, max_length=max_truncation
-        )["input_ids"]
+            #logger.info(f"truncate : {r.truncate}, {len(r.input_tokens)}")
+            if r.input_tokens and len(r.input_tokens) > 0 :
+                batch_input_tokens.append(r.input_tokens)
+        
+        batch_tokenized_inputs = []
+        if len(batch_input_tokens) > 0 :
+            if len(batch_input_tokens) != len(batch_inputs): # 两种方式混合，直接raise异常
+                raise ValueError("only support call with encoded input_token")
+            # 手动进行填充
+            # 找到最大的token长度
+            max_length = max([len(tokens) for tokens in batch_input_tokens])
+            batch_tokenized_inputs = []
+            attention_masks = []
+            for pb_tokens in batch_input_tokens:
+                tokens = list(pb_tokens)
+                # 计算从左边填充的数量
+                num_pad_tokens = max_length - len(tokens)
+                padded_tokens = [tokenizer.pad_token_id] * num_pad_tokens + tokens
+                mask = [0] * num_pad_tokens + [1] * len(tokens)
+                
+                batch_tokenized_inputs.append(padded_tokens)
+                attention_masks.append(mask)
+    
+            # # 转化为PyTorch tensors并移至GPU
+            # input_ids_tensor = torch.LongTensor(padded_input_ids).to(device)
+            # attention_mask_tensor = torch.LongTensor(attention_masks).to(device)
+            # batch_tokenized_inputs = {
+            #     'input_ids': input_ids_tensor,
+            #     'attention_mask': attention_mask_tensor
+            # }
+            
+            # batch_tokenized_inputs2 = tokenizer(
+            #     batch_inputs, truncation=True, max_length=max_truncation
+            # )["input_ids"]
+            
+            # for i, item in batch_tokenized_inputs:
+            #     logger.info(f"############ user encode, tokenized_inputs  {len(batch_tokenized_inputs[i])} {len(batch_tokenized_inputs2[i])}")
+            #     logger.info(f"############ user encode, tokenized_inputs  {batch_tokenized_inputs[i]} {batch_tokenized_inputs2[i]}")
+        else:
+            batch_tokenized_inputs = tokenizer(
+                batch_inputs, truncation=True, max_length=max_truncation
+            )["input_ids"]
 
         position_ids = []
         cu_seqlen_prefill = [0]
